@@ -12,7 +12,7 @@
     },
     "title": "Importuj ustawienia",
     "intro": "Ten formularz pozwala wybrać ustawienia świata i gracza, które mają zostać zaimportowane.",
-    "message": "Lista wygenerowana za pomocą Forien's Copy Environment: https://github.com/League-of-Foundry-Developers/foundryvtt-forien-copy-environment",
+    "message": "Lista wygenerowana za pomocą Forien's Copy Environment: https://github.com/digennarot/foundryvtt-forien-copy-environment",
     "copiedToClipboard": "Dane środowiskowe skopiowane do schowka!",
     "updatedReloading": "Zaktualizowano ustawienia świata. Przeładowanie świata za 5 sekund...",
     "import": {

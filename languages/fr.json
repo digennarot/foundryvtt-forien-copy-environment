@@ -12,7 +12,7 @@
     },
     "title": "Importer les réglages",
     "intro": "Ce formulaire vous permet de sélectionner les réglages du monde et des joueurs que vous souhaitez importer.",
-    "message": "Liste générée avec Forien's Copy Environment: https://github.com/League-of-Foundry-Developers/foundryvtt-forien-copy-environment",
+    "message": "Liste générée avec Forien's Copy Environment: https://github.com/digennarot/foundryvtt-forien-copy-environment",
     "copiedToClipboard": "Données d'environnement copiées dans le presse-papier!",
     "updatedReloading": "Réglages du monde mises à jour. Rechargement du monde dans 5 sec...",
     "import": {

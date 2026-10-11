@@ -1,6 +1,6 @@
 # FoundryVTT - Forien's Copy Environment
 
-![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/League-of-Foundry-Developers/foundryvtt-forien-copy-environment) ![GitHub Releases](https://img.shields.io/github/downloads/League-of-Foundry-Developers/foundryvtt-forien-copy-environment/latest/total) ![GitHub Releases](https://img.shields.io/github/downloads/League-of-Foundry-Developers/foundryvtt-forien-copy-environment/total) ![Forge Installs](https://img.shields.io/badge/dynamic/json?label=Forge%20Installs&query=package.installs&suffix=%25&url=https%3A%2F%2Fforge-vtt.com%2Fapi%2Fbazaar%2Fpackage%2Fforien-copy-environment&colorB=4aa94a) ![Foundry Version](https://img.shields.io/badge/dynamic/json.svg?url=https://github.com/League-of-Foundry-Developers/foundryvtt-forien-copy-environment/releases/latest/download/module.json&label=foundry%20version&query=$.compatibleCoreVersion&colorB=blueviolet) ![Forien's Copy Environment](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLeague-of-Foundry-Developers%2Fleague-repo-status%2Fshields-endpoint%2Fforien-copy-environment.json)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/digennarot/foundryvtt-forien-copy-environment) ![GitHub Releases](https://img.shields.io/github/downloads/digennarot/foundryvtt-forien-copy-environment/latest/total) ![GitHub Releases](https://img.shields.io/github/downloads/digennarot/foundryvtt-forien-copy-environment/total) ![Forge Installs](https://img.shields.io/badge/dynamic/json?label=Forge%20Installs&query=package.installs&suffix=%25&url=https%3A%2F%2Fforge-vtt.com%2Fapi%2Fbazaar%2Fpackage%2Fforien-copy-environment&colorB=4aa94a) ![Foundry Version](https://img.shields.io/badge/dynamic/json.svg?url=https://github.com/digennarot/foundryvtt-forien-copy-environment/releases/latest/download/module.json&label=foundry%20version&query=$.compatibleCoreVersion&colorB=blueviolet) ![Forien's Copy Environment](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FLeague-of-Foundry-Developers%2Fleague-repo-status%2Fshields-endpoint%2Fforien-copy-environment.json)
 
 
 
@@ -16,7 +16,7 @@ Module also allows to export (save/backup) current game settings and then import
 
 ## Installation
 
-1. Install Forien's Copy Environment using manifest URL: https://raw.githubusercontent.com/League-of-Foundry-Developers/foundryvtt-forien-copy-environment/master/module.json
+1. Install Forien's Copy Environment using manifest URL: https://raw.githubusercontent.com/digennarot/foundryvtt-forien-copy-environment/master/module.json
 2. While loaded in World, enable **_Forien's Copy Environment_** module.
 
 ### Usage

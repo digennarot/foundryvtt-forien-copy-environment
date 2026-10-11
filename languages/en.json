@@ -12,7 +12,7 @@
     },
     "title": "Import Settings",
     "intro": "This form allows you to select which world and player settings you want to import.",
-    "message": "List generated with Forien's Copy Environment: https://github.com/League-of-Foundry-Developers/foundryvtt-forien-copy-environment",
+    "message": "List generated with Forien's Copy Environment: https://github.com/digennarot/foundryvtt-forien-copy-environment",
     "copiedToClipboard": "Environment data copied to clipboard!",
     "updatedReloading": "Updated world settings. Reloading world in 5sec...",
     "import": {
