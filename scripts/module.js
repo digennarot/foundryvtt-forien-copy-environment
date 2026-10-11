@@ -1,4 +1,4 @@
-import {name} from './config.js';
+import {name, DEFAULT_UNSELECTED} from './config.js';
 import Core from './core.js';
 
 Hooks.once('init', function () {
@@ -6,10 +6,7 @@ Hooks.once('init', function () {
     scope: 'client',
     config: false,
     type: Object,
-    default: {
-      'core.time': false,
-      'pf2e.worldClock.worldCreatedOn': false,
-    },
+    default: {...DEFAULT_UNSELECTED},
   });
 
   game.settings.register(name, 'diff-length', {

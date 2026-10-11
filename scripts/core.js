@@ -1,29 +1,16 @@
-import { name, templates, log } from './config.js';
+import { name, templates, log, DEFAULT_UNSELECTED, DEPRECATED_SETTINGS } from './config.js';
 import Setting, { getSettingSource } from './setting.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-
-/**
- * Settings that should never be selected for import by default.
- * - core.time: the world time is specific to each world.
- * - pf2e.worldClock.worldCreatedOn: legacy PF2e key (pre 0.936 migration), now part of pf2e.worldClock.
- */
-const DEFAULT_UNSELECTED = {
-  'core.time': false,
-  'pf2e.worldClock.worldCreatedOn': false,
-};
-
-/**
- * Core settings deprecated in v14 without replacement, reading them only logs a warning.
- */
-const DEPRECATED_SETTINGS = ['core.gridTemplates', 'core.coneTemplateType'];
 
 export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
   /**
    * @param {Array.<Object>} settings Read from previously exported settings
    */
   constructor(settings, options = {}) {
-    super(options);
+    // Size relative to the viewport at the time the window is opened.
+    super(foundry.utils.mergeObject({ position: { width: Math.ceil(window.innerWidth / 2) } }, options));
+    this.importing = false;
     this.settingGroups = new Map();
     this.settings = [];
     this.hasWorldSettings = false;
@@ -42,6 +29,10 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
       log(true, 'Parsing provided settings', settings);
 
       settings.forEach((data) => {
+        if (DEPRECATED_SETTINGS.includes(data?.key)) {
+          log(false, 'Skipping deprecated setting', data.key);
+          return;
+        }
         try {
           let setting = new Setting(data);
           if (setting) {
@@ -120,11 +111,9 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
       resizable: true,
     },
     position: {
-      width: Math.ceil(window.innerWidth / 2),
       height: 'auto',
     },
     actions: {
-      close: Core.#onClose,
       import: Core.#onImport,
       showSettings: Core.#onShowSettings,
     },
@@ -262,10 +251,6 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#updateCheckboxStates(target);
   }
 
-  static #onClose() {
-    this.close();
-  }
-
   static #onShowSettings(event, target) {
     const row = target.closest('tr');
     target.closest('tbody').querySelectorAll('tr').forEach((tr) => {
@@ -275,7 +260,21 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
     });
   }
 
-  static async #onImport() {
+  static async #onImport(event, target) {
+    if (this.importing) {
+      return;
+    }
+    this.importing = true;
+    target.disabled = true;
+    try {
+      await this.#import();
+    } finally {
+      this.importing = false;
+      target.disabled = false;
+    }
+  }
+
+  async #import() {
     let changed = false;
     const fieldsets = Array.from(this.form.getElementsByTagName('fieldset'))
       .sort((f) => (f.dataset?.type === 'player' ? -1 : 1));
@@ -330,12 +329,11 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     try {
-      await this.processSettings(changes);
+      return (await this.processSettings(changes)) === true;
     } catch (e) {
       console.error('Import world settings: error', e);
       return false;
     }
-    return true;
   }
 
   async importPlayerSettings(fieldset) {
@@ -579,15 +577,10 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
         if (storage) {
           storage.setItem(data.key, data.value);
         }
-      } else if (config?.scope === 'user') {
-        // User scoped settings are stored per user, so let core handle the document.
-        try {
-          await game.settings.set(config.namespace, config.key, JSON.parse(data.value));
-        } catch (e) {
-          console.error(`Copy Environment | Could not import user setting ${data.key}`, e);
-        }
-      } else if (game.user.isGM) {
-        const existing = game.settings.storage.get('world').getSetting(data.key);
+      } else if (config?.scope === 'user' || game.user.isGM) {
+        // User scoped settings are stored as Setting documents owned by the current user.
+        const user = config?.scope === 'user' ? game.userId : null;
+        const existing = game.settings.storage.get('world').getSetting(data.key, user);
 
         if (data.key === 'core.compendiumConfiguration') {
           // The Compendium Configuration setting maps compendiums to folders, and the FolderIDs
@@ -632,6 +625,7 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
           creates.push({
             key: data.key,
             value: data.value,
+            ...(user ? { user } : {}),
           });
         }
       }
@@ -670,6 +664,7 @@ export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
     } catch (e) {
       log(true, `Settings update could not be dispatched to server.`);
       console.error(e);
+      return false;
     }
   }
 

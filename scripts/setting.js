@@ -1,4 +1,4 @@
-import {name as moduleName} from './config.js';
+import {name as moduleName, WORLD_SPECIFIC_FIELDS} from './config.js';
 
 export default class Setting {
   /**
@@ -97,13 +97,43 @@ export class WorldSetting {
     }
 
     this.key = setting.key;
-    this.value = setting.value;
+    this.value = WorldSetting.keepWorldSpecificFields(setting.key, setting.value);
     this.difference = this.calculateDifference();
     this.group = this.key.split('.').shift();
   }
 
   hasChanges() {
     return this.difference.hasChanges();
+  }
+
+  /**
+   * Replace the fields of an imported object setting that are specific to each world
+   * (see WORLD_SPECIFIC_FIELDS) with the values of the current world.
+   * @param {string} key
+   * @param {string} value Serialized imported value
+   * @returns {string} Serialized value to import
+   */
+  static keepWorldSpecificFields(key, value) {
+    const fields = WORLD_SPECIFIC_FIELDS[key];
+    if (!fields || !value) {
+      return value;
+    }
+    try {
+      const imported = JSON.parse(value);
+      const [namespace, ...rest] = key.split('.');
+      const raw = getSettingSource(namespace, rest.join('.'));
+      const current = raw === undefined ? undefined : JSON.parse(raw);
+      if (foundry.utils.getType(imported) !== 'Object' || foundry.utils.getType(current) !== 'Object') {
+        return value;
+      }
+      for (const field of fields) {
+        imported[field] = current[field] ?? null;
+      }
+      return JSON.stringify(imported);
+    } catch (e) {
+      console.warn('Copy Environment | Could not keep world specific fields for', key, e);
+      return value;
+    }
   }
 
   /**
@@ -127,11 +157,6 @@ export class WorldSetting {
       let newValue = this.value;
       if (newValue) {
         newValue = JSON.parse(newValue);
-      }
-      if (this.key === 'pf2e.worldClock' && foundry.utils.getType(newValue) === 'Object' && existingSetting) {
-        // The world creation date is specific to each world, keep the current one.
-        newValue.worldCreatedOn = existingSetting.worldCreatedOn ?? null;
-        this.value = JSON.stringify(newValue);
       }
       if (typeof existingSetting === 'object' && typeof newValue === 'object') {
         let diff = foundry.utils.diffObject(existingSetting, newValue);
@@ -183,7 +208,11 @@ export class PlayerSetting {
     const userData = existingUser._source;
 
     // Older exports serialized the Color object as a number, normalize to a CSS string.
-    const importedColor = setting.core.color == null ? null : foundry.utils.Color.from(setting.core.color).css;
+    const color = setting.core.color == null ? null : foundry.utils.Color.from(setting.core.color);
+    const importedColor = color?.valid ? color.css : null;
+    if (setting.core.color != null && !importedColor) {
+      console.warn('Copy Environment | Skipping invalid color for user', this.name, setting.core.color);
+    }
     if (importedColor && importedColor !== userData.color) {
       this.playerDifferences.color = new Difference(
         'color',
