@@ -17,10 +17,10 @@
   "url": "https://github.com/digennarot/foundryvtt-forien-copy-environment",
   "bugs": "https://github.com/digennarot/foundryvtt-forien-copy-environment/issues",
   "changelog": "https://github.com/digennarot/foundryvtt-forien-copy-environment/blob/master/changelog.md",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "compatibility": {
-    "minimum": "13",
-    "verified": "13"
+    "minimum": "14",
+    "verified": "14.368"
   },
   "esmodules": [
     "/scripts/module.js"

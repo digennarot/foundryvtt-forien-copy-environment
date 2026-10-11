@@ -1,4 +1,4 @@
-<form class="flexcol {{classes}}" autocomplete="off">
+<form class="flexcol" autocomplete="off">
   <h2 class="noflex">{{localize 'forien-copy-environment.intro'}}</h2>
 
   <section class="import-properties">
@@ -15,7 +15,7 @@
       {{#each settings as |setting|}}
         <tbody>
           <tr>
-            <td colspan="3"><label><input type="checkbox" class="toggle-selections"> {{setting.[0]}}</label> <span class="show-settings">({{localize 'forien-copy-environment.import.showSettings' count=setting.[1].length}})</span></td>
+            <td colspan="3"><label><input type="checkbox" class="toggle-selections"> {{setting.[0]}}</label> <span class="show-settings" data-action="showSettings">({{localize 'forien-copy-environment.import.showSettings' count=setting.[1].length}})</span></td>
           </tr>
           {{#each setting.[1]}}
           <tr class="none">
@@ -118,8 +118,8 @@
   </div>
 
   <div class="noflex">
-    {{#if hasChanges}}<button type="button" class="import"><i class="fas fa-save"></i>
+    {{#if hasChanges}}<button type="button" class="import" data-action="import"><i class="fas fa-save"></i>
       {{localize 'forien-copy-environment.import.save'}}</button>{{/if}}
-    <button type="button" class="close"><i class="fas fa-close"></i> {{localize 'Close'}}</button>
+    <button type="button" class="close" data-action="close"><i class="fas fa-close"></i> {{localize 'APPLICATION.ACTIONS.Close'}}</button>
   </div>
 </form>

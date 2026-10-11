@@ -53,6 +53,37 @@ export default class Setting {
 }
 
 /**
+ * Returns the serialized (JSON) value of a setting as it is stored, rather than the initialized value
+ * returned by game.settings.get, which can contain Color, Set or DataModel instances that don't survive
+ * JSON serialization or comparison.
+ * Falls back to the serialized initialized value (usually the default) when nothing is stored.
+ * @param {string} namespace
+ * @param {string} key
+ * @returns {string|undefined}
+ */
+export function getSettingSource(namespace, key) {
+  const id = `${namespace}.${key}`;
+  const config = game.settings.settings.get(id);
+  const scope = config?.scope ?? 'world';
+  if (scope === 'client') {
+    const stored = game.settings.storage.get('client')?.getItem(id);
+    if (stored !== null && stored !== undefined) {
+      return stored;
+    }
+  } else {
+    const user = scope === 'user' ? game.userId : null;
+    const stored = game.settings.storage.get('world')?.getSetting(id, user);
+    if (stored) {
+      return stored._source.value;
+    }
+  }
+  if (!config) {
+    return undefined;
+  }
+  return JSON.stringify(game.settings.get(namespace, key));
+}
+
+/**
  * WorldSetting represents a world level setting.
  */
 export class WorldSetting {
@@ -85,7 +116,10 @@ export class WorldSetting {
     const key = keyParts.join('.');
     let existingSetting;
     try {
-      existingSetting = game.settings.get(namespace, key);
+      const raw = getSettingSource(namespace, key);
+      if (raw !== undefined) {
+        existingSetting = JSON.parse(raw);
+      }
     } catch (e) {
       // do nothing, it just means the setting isn't registered, likely because the module isn't enabled.
     }
@@ -94,9 +128,14 @@ export class WorldSetting {
       if (newValue) {
         newValue = JSON.parse(newValue);
       }
+      if (this.key === 'pf2e.worldClock' && foundry.utils.getType(newValue) === 'Object' && existingSetting) {
+        // The world creation date is specific to each world, keep the current one.
+        newValue.worldCreatedOn = existingSetting.worldCreatedOn ?? null;
+        this.value = JSON.stringify(newValue);
+      }
       if (typeof existingSetting === 'object' && typeof newValue === 'object') {
         let diff = foundry.utils.diffObject(existingSetting, newValue);
-        if (typeof foundry.utils.isEmpty === 'function' ? foundry.utils.isEmpty(diff) : foundry.utils.isObjectEmpty(diff)) {
+        if (foundry.utils.isEmpty(diff)) {
           // No difference in the underlying object.
           return new Difference(this.key, null, null);
         }
@@ -112,8 +151,8 @@ export class WorldSetting {
     }
 
     // Return the difference of the original values, not the parsed values.
-    let existingSettings = game.data.settings.find((s) => s.key === this.key);
-    return new Difference(this.key, existingSettings?.value, this.value);
+    let existingSettings = game.settings.storage.get('world').getSetting(this.key);
+    return new Difference(this.key, existingSettings?._source.value, this.value);
   }
 }
 
@@ -141,13 +180,15 @@ export class PlayerSetting {
       return this;
     }
 
-    const userData = existingUser;
+    const userData = existingUser._source;
 
-    if (setting.core.color !== userData.color) {
+    // Older exports serialized the Color object as a number, normalize to a CSS string.
+    const importedColor = setting.core.color == null ? null : foundry.utils.Color.from(setting.core.color).css;
+    if (importedColor && importedColor !== userData.color) {
       this.playerDifferences.color = new Difference(
         'color',
         userData.color,
-        setting.core.color
+        importedColor
       );
     }
 
@@ -163,7 +204,7 @@ export class PlayerSetting {
       this.playerDifferences.permissions = new Difference(
         'permissions',
         userData.permissions,
-        this.data.core.permissions
+        setting.core.permissions
       );
     }
 
@@ -198,14 +239,7 @@ export class PlayerSetting {
    * @returns boolean
    */
   hasDataChanges() {
-    if (typeof foundry.utils.isEmpty === 'function') {
-      return !foundry.utils.isEmpty(this.playerDifferences) || !foundry.utils.isEmpty(this.playerFlagDifferences);
-    }
-
-    return (
-      !foundry.utils.isObjectEmpty(this.playerDifferences) ||
-      !foundry.utils.isObjectEmpty(this.playerFlagDifferences)
-    );
+    return !foundry.utils.isEmpty(this.playerDifferences) || !foundry.utils.isEmpty(this.playerFlagDifferences);
   }
 }
 

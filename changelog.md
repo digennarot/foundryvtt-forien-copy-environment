@@ -1,5 +1,16 @@
 # Changelog
 
+## v4.0.0
+
+- Foundry VTT v14 compatibility (verified on 14.368). Foundry v13 is no longer supported, use v3.0.0 there.
+- Rewrote the import window with ApplicationV2 and removed jQuery usage.
+- Updated the settings sidebar context menu to the v14 `ContextMenu` API (`label`/`onClick`) and avoided attaching it more than once.
+- Replaced deprecated globals (`SocketInterface`, `loadTemplates`, `Folder`) with their namespaced versions.
+- Copy as text now uses the Foundry clipboard helper.
+- User-scoped settings are imported for the current user instead of being written as world settings.
+- Fixed user colors always showing as changed, and an error when user permissions differed.
+- PF2e 8.6: the world creation date inside `pf2e.worldClock` is kept from the current world when importing.
+
 ## v2.2.4
 
 - Added Polish translation by Lioheart.

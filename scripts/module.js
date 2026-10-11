@@ -27,23 +27,28 @@ Hooks.once('devModeReady', ({registerPackageDebugFlag}) => {
   registerPackageDebugFlag(name);
 });
 
-Hooks.on('renderSettings', function (app, html, data) {
-  new foundry.applications.ux.ContextMenu.implementation(html, '#settings section.info', [
+Hooks.on('renderSettings', function (app, html, context, options) {
+  // The application element persists across re-renders, so only attach the menu once.
+  if (!options?.isFirstRender) {
+    return;
+  }
+
+  new foundry.applications.ux.ContextMenu.implementation(html, 'section.info', [
     {
-      name: game.i18n.localize('forien-copy-environment.menu.copy'),
+      label: 'forien-copy-environment.menu.copy',
       icon: '<i class="far fa-copy"></i>',
-      callback: () => {
+      onClick: async () => {
         try {
-          Core.copyAsText();
+          await Core.copyAsText();
         } catch (e) {
           console.error('Copy Environment | Error copying game settings to clipboard', e);
         }
       },
     },
     {
-      name: game.i18n.localize('forien-copy-environment.menu.save'),
+      label: 'forien-copy-environment.menu.save',
       icon: '<i class="fas fa-copy"></i>',
-      callback: () => {
+      onClick: () => {
         try {
           Core.saveSummaryAsJSON();
         } catch (e) {
@@ -52,9 +57,9 @@ Hooks.on('renderSettings', function (app, html, data) {
       },
     },
     {
-      name: game.i18n.localize('forien-copy-environment.menu.export'),
+      label: 'forien-copy-environment.menu.export',
       icon: '<i class="fas fa-file-export"></i>',
-      callback: () => {
+      onClick: () => {
         try {
           Core.exportGameSettings();
         } catch (e) {
@@ -63,9 +68,9 @@ Hooks.on('renderSettings', function (app, html, data) {
       },
     },
     {
-      name: game.i18n.localize('forien-copy-environment.menu.import'),
+      label: 'forien-copy-environment.menu.import',
       icon: '<i class="fas fa-file-import"></i>',
-      callback: () => {
+      onClick: () => {
         try {
           Core.importGameSettingsQuick();
         } catch (e) {

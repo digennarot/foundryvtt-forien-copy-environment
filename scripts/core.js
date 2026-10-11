@@ -1,13 +1,29 @@
 import { name, templates, log } from './config.js';
-import Setting from './setting.js';
+import Setting, { getSettingSource } from './setting.js';
 
-// @todo refactor into ApplicationV2 before Foundry v16
-export default class Core extends foundry.appv1.api.FormApplication {
+const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+
+/**
+ * Settings that should never be selected for import by default.
+ * - core.time: the world time is specific to each world.
+ * - pf2e.worldClock.worldCreatedOn: legacy PF2e key (pre 0.936 migration), now part of pf2e.worldClock.
+ */
+const DEFAULT_UNSELECTED = {
+  'core.time': false,
+  'pf2e.worldClock.worldCreatedOn': false,
+};
+
+/**
+ * Core settings deprecated in v14 without replacement, reading them only logs a warning.
+ */
+const DEPRECATED_SETTINGS = ['core.gridTemplates', 'core.coneTemplateType'];
+
+export default class Core extends HandlebarsApplicationMixin(ApplicationV2) {
   /**
    * @param {Array.<Object>} settings Read from previously exported settings
    */
-  constructor(settings) {
-    super();
+  constructor(settings, options = {}) {
+    super(options);
     this.settingGroups = new Map();
     this.settings = [];
     this.hasWorldSettings = false;
@@ -16,9 +32,9 @@ export default class Core extends foundry.appv1.api.FormApplication {
     this.notChangedSettings = [];
     this.notChangedPlayers = [];
     this.notFoundPlayers = [];
-    this.selectedProperties = game.settings.get(name, 'selected-properties') || {
-      'core.time': false,
-      'pf2e.worldClock.worldCreatedOn': false,
+    this.selectedProperties = {
+      ...DEFAULT_UNSELECTED,
+      ...(game.settings.get(name, 'selected-properties') || {}),
     };
     this.supportingData = {};
 
@@ -53,13 +69,13 @@ export default class Core extends foundry.appv1.api.FormApplication {
                   this.notFoundPlayers.push(setting.value);
                   break;
                 }
-                for (const [key, val] of Object.entries(setting.value.playerDifferences)) {
+                for (const key of Object.keys(setting.value.playerDifferences)) {
                   const combinedKey = `${setting.value.name}--${key}`;
                   if (typeof this.selectedProperties[combinedKey] === 'undefined') {
                     this.selectedProperties[combinedKey] = true;
                   }
                 }
-                for (const [key, val] of Object.entries(setting.value.playerFlagDifferences)) {
+                for (const key of Object.keys(setting.value.playerFlagDifferences)) {
                   const combinedKey = `${setting.value.name}--flag--${key}`;
                   if (typeof this.selectedProperties[combinedKey] === 'undefined') {
                     this.selectedProperties[combinedKey] = true;
@@ -96,15 +112,37 @@ export default class Core extends foundry.appv1.api.FormApplication {
     log(true, 'Selected Properties', this.selectedProperties);
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      classes: ['copy-environment-settings'],
-      height: 'auto',
-      width: Math.ceil(window.innerWidth / 2),
-      id: `${name}-settings`,
+  static DEFAULT_OPTIONS = {
+    id: `${name}-settings`,
+    classes: ['copy-environment-settings'],
+    window: {
       title: `${name}.title`,
+      resizable: true,
+    },
+    position: {
+      width: Math.ceil(window.innerWidth / 2),
+      height: 'auto',
+    },
+    actions: {
+      close: Core.#onClose,
+      import: Core.#onImport,
+      showSettings: Core.#onShowSettings,
+    },
+  };
+
+  static PARTS = {
+    form: {
       template: templates.settings,
-    });
+      scrollable: ['.import-properties'],
+    },
+  };
+
+  /**
+   * The form element rendered by the template.
+   * @type {HTMLFormElement|null}
+   */
+  get form() {
+    return this.element?.querySelector('form') ?? null;
   }
 
   // shouldShowCoreModuleWarning returns true if the core module configuration is not selected.
@@ -112,7 +150,7 @@ export default class Core extends foundry.appv1.api.FormApplication {
     return !this.selectedProperties['core.moduleConfiguration'];
   }
 
-  getData() {
+  async _prepareContext(options) {
     return {
       settings: this.settings,
       playerSettings: this.playerSettings,
@@ -127,118 +165,143 @@ export default class Core extends foundry.appv1.api.FormApplication {
     };
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
+    this.element.addEventListener('change', this.#onChangeCheckbox.bind(this));
+  }
 
-    const updateCheckboxStates = (el) => {
-      let overall = $(el.closest('tbody')).find('input[type=checkbox].toggle-selections')[0];
-      if ($(el).data()?.type === 'core' || $(el).data()?.type === 'flag') {
-        overall = $(el.closest('fieldset')).find('input[type=checkbox].toggle-selections')[0];
+  async _onRender(context, options) {
+    await super._onRender(context, options);
+    this.element.querySelectorAll('tbody').forEach((tbody) => {
+      const first = tbody.querySelector('input[type=checkbox]');
+      if (first) {
+        this.#updateCheckboxStates(first);
       }
-
-      if (!overall) {
-        return;
-      }
-
-      const options = $(el.closest('tbody')).find(
-        'input[type=checkbox]:not(.toggle-selections)'
-      );
-
-      var checkedCount = 0;
-      for (var i = 0; i < options.length; i++) {
-        if (options[i].checked) {
-          checkedCount++;
-        }
-      }
-
-      if (checkedCount === 0) {
-        overall.checked = false;
-        overall.indeterminate = false;
-      } else if (checkedCount === options.length) {
-        overall.checked = true;
-        overall.indeterminate = false;
-      } else {
-        overall.checked = false;
-        overall.indeterminate = true;
-      }
-    };
-
-    html.on('click', '.close', () => {
-      this.close();
     });
+  }
 
-    html.on('change', '.toggle-all-selections', (el) => {
-      $(el.target.closest('fieldset'))
-        .find('td input')
-        .not(el.target)
-        .prop('checked', el.target.checked)
-        .change();
+  /**
+   * Sync the "select all" checkbox of a group with the state of its options.
+   * @param {HTMLInputElement} el
+   */
+  #updateCheckboxStates(el) {
+    let overall = el.closest('tbody')?.querySelector('input[type=checkbox].toggle-selections');
+    if (el.dataset?.type === 'core' || el.dataset?.type === 'flag') {
+      overall = el.closest('fieldset')?.querySelector('input[type=checkbox].toggle-selections');
+    }
+
+    if (!overall) {
+      return;
+    }
+
+    const options = Array.from(
+      el.closest('tbody').querySelectorAll('input[type=checkbox]:not(.toggle-selections)')
+    );
+    const checkedCount = options.filter((o) => o.checked).length;
+
+    overall.checked = options.length > 0 && checkedCount === options.length;
+    overall.indeterminate = checkedCount > 0 && checkedCount < options.length;
+  }
+
+  /**
+   * Set the checked state of several checkboxes, persisting the selection once.
+   * @param {HTMLInputElement[]} inputs
+   * @param {boolean} checked
+   */
+  #setChecked(inputs, checked) {
+    for (const input of inputs) {
+      input.checked = checked;
+      input.indeterminate = false;
+      if (input.name) {
+        this.selectedProperties[input.name] = checked;
+      }
+    }
+    this.#persistSelection();
+    this.element.querySelectorAll('tbody').forEach((tbody) => {
+      const first = tbody.querySelector('input[type=checkbox]:not(.toggle-selections)');
+      if (first) {
+        this.#updateCheckboxStates(first);
+      }
     });
+  }
 
-    html.on('change', '.toggle-selections', (el) => {
-      $(el.target.closest('tbody'))
-        .find('td input')
-        .not(el.target)
-        .prop('checked', el.target.checked)
-        .change();
+  #persistSelection() {
+    game.settings.set(name, 'selected-properties', this.selectedProperties);
+    this.element
+      .querySelector('.core-module-warning')
+      ?.classList.toggle('hidden', !this.shouldShowCoreModuleWarning());
+  }
+
+  #onChangeCheckbox(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') {
+      return;
+    }
+
+    if (target.classList.contains('toggle-all-selections')) {
+      const inputs = Array.from(target.closest('fieldset').querySelectorAll('td input[type=checkbox]'));
+      this.#setChecked(inputs, target.checked);
+      return;
+    }
+
+    if (target.classList.contains('toggle-selections')) {
+      // World groups have their toggle inside the tbody, player fieldsets have it in the thead.
+      const scope = target.closest('tbody') ?? target.closest('fieldset');
+      const inputs = Array.from(scope.querySelectorAll('td input[type=checkbox]')).filter((i) => i !== target);
+      this.#setChecked(inputs, target.checked);
+      return;
+    }
+
+    if (!target.name) {
+      return;
+    }
+
+    log(false, `Setting ${target.name} to ${target.checked}`);
+    this.selectedProperties[target.name] = target.checked;
+    this.#persistSelection();
+    this.#updateCheckboxStates(target);
+  }
+
+  static #onClose() {
+    this.close();
+  }
+
+  static #onShowSettings(event, target) {
+    const row = target.closest('tr');
+    target.closest('tbody').querySelectorAll('tr').forEach((tr) => {
+      if (tr !== row) {
+        tr.classList.toggle('none');
+      }
     });
+  }
 
-    html.on('click', '.show-settings', (el) => {
-      $(el.target.closest('tbody'))
-        .find('tr')
-        .not(el.target.closest('tr'))
-        .toggleClass('none');
-    });
-
-    html.on('change', 'input[type=checkbox]', (el) => {
-      if (!el.target.name) {
-        return;
+  static async #onImport() {
+    let changed = false;
+    const fieldsets = Array.from(this.form.getElementsByTagName('fieldset'))
+      .sort((f) => (f.dataset?.type === 'player' ? -1 : 1));
+    for (let field of fieldsets) {
+      let targetType = field.dataset?.type;
+      if (!targetType) {
+        log(false, 'Could not find fieldset target type');
+        continue;
       }
 
-      console.log(`Setting ${el.target.name} to ${el.target.checked}`);
-      this.selectedProperties[el.target.name] = el.target.checked;
-      game.settings.set(name, 'selected-properties', this.selectedProperties);
-
-      if (el.target.name === 'core.moduleConfiguration') {
-        // Update the warning visibility when the core module configuration setting changes.
-        $(el.target.closest('form'))
-          .find('.core-module-warning')
-          .toggleClass('hidden', !this.shouldShowCoreModuleWarning());
+      switch (targetType) {
+        case 'world':
+          changed = (await this.importWorldSettings(field)) || changed;
+          break;
+        case 'player':
+          changed = (await this.importPlayerSettings(field)) || changed;
+          break;
       }
+    }
 
-      updateCheckboxStates(el.target);
-    });
+    if (changed) {
+      ui.notifications.info(game.i18n.localize('forien-copy-environment.updatedReloading'), { permanent: true });
+      window.setTimeout(() => foundry.utils.debouncedReload(), 6000);
+    }
 
-    html.on('click', '.import', async () => {
-      let changed = false;
-      for (let field of Array.from(this.form.getElementsByTagName('fieldset')).sort(f => f.dataset?.type === 'player' ? -1 : 1)) {
-        let targetType = field.dataset?.type;
-        if (!targetType) {
-          log(false, 'Could not find fieldset target type');
-          continue;
-        }
-
-        switch (targetType) {
-          case 'world':
-            changed = await this.importWorldSettings(field) || changed;
-            break;
-          case 'player':
-            changed = await this.importPlayerSettings(field) || changed;
-            break;
-        }
-      }
-
-      if (changed) {
-        ui.notifications.info(game.i18n.localize('forien-copy-environment.updatedReloading'), {permanent: true});
-        window.setTimeout(window.location.reload.bind(window.location), 6000);
-      }
-
-      this.close();
-    });
-
-    html.find('tbody').each((i, el) => {
-      updateCheckboxStates($(el).find('input[type=checkbox]:first'));
-    });
+    this.close();
   }
 
   async importWorldSettings(fieldset) {
@@ -302,10 +365,6 @@ export default class Core extends foundry.appv1.api.FormApplication {
       }
 
       const fieldName = input.name.split('--').pop();
-      if (!type) {
-        log(true, 'Import player settings: missing value for', input.name);
-        continue;
-      }
 
       if (type === 'core') {
         changes[fieldName] =
@@ -323,7 +382,7 @@ export default class Core extends foundry.appv1.api.FormApplication {
       return false;
     }
 
-    if (Object.keys(changes).length === 1 && (typeof foundry.utils.isEmpty === 'function' ? foundry.utils.isEmpty(changes.flags) : foundry.utils.isObjectEmpty(changes.flags))) {
+    if (Object.keys(changes).length === 1 && foundry.utils.isEmpty(changes.flags)) {
       log(true, 'No changes selected for', targetUser?.name);
       return false;
     }
@@ -351,29 +410,24 @@ export default class Core extends foundry.appv1.api.FormApplication {
     foundry.utils.saveDataToFile(jsonStr, 'application/json', filename);
   }
 
+  static getAuthors(pkg) {
+    const authors = pkg.authors?.size || pkg.authors?.length
+      ? Array.from(pkg.authors).map((a) => (typeof a === 'string' ? a : a.name))
+      : [pkg.author];
+    return Array.from(new Set(authors.filter(Boolean))).join(', ');
+  }
+
   static getText() {
-    const system = game.data.system;
+    const system = game.system;
     const core = game.version;
 
     let text = `Core Version: ${core}\n\n`;
 
-    const systemAuthors = system.authors.length ? system.authors.map(a => {
-      if (typeof a === 'string') {
-        return a;
-      }
-      return a.name;
-    }) : [system.author];
-    text += `System: ${(system.id ?? system.name)} ${system.version} (${Array.from(new Set(systemAuthors)).join(', ')}) \n\n`;
+    text += `System: ${system.id} ${system.version} (${Core.getAuthors(system)}) \n\n`;
 
     text += `Modules: \n`;
     Core.getModulesForExport().forEach((m) => {
-      const moduleAuthors = m.authors.length ? m.authors.map(a => {
-        if (typeof a === 'string') {
-          return a;
-        }
-        return a.name;
-      }) : [m.author];
-      text += `${(m.id ?? m.name)} ${m.version} (${Array.from(new Set(moduleAuthors)).join(', ')})\n`;
+      text += `${m.id ?? m.name} ${m.version} (${Core.getAuthors(m)})\n`;
     });
 
     text += `\n${game.i18n.localize('forien-copy-environment.message')}`;
@@ -383,41 +437,24 @@ export default class Core extends foundry.appv1.api.FormApplication {
     return text;
   }
 
-  static copyAsText() {
-    let text = this.getText();
+  static async copyAsText() {
+    const text = this.getText();
 
-    const el = document.createElement('textarea');
-    el.value = text;
-    el.setAttribute('readonly', '');
-    el.style.position = 'absolute';
-    el.style.left = '-9999px';
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
+    await game.clipboard.copyPlainText(text);
 
-    ui.notifications.info(
-      game.i18n.localize('forien-copy-environment.copiedToClipboard'),
-      {},
-    );
+    ui.notifications.info(game.i18n.localize('forien-copy-environment.copiedToClipboard'));
   }
 
   static getModulesForExport() {
-    return game.modules.map(m => {
+    return game.modules.filter((m) => m.active).map((m) => {
       let mod = m.toObject();
       mod.active = m.active;
       return mod;
-    }).filter((m) => m.active);
+    });
   }
 
   static saveSummaryAsJSON() {
-    const system = game.data.system;
-    const systemAuthors = system.authors.length ? system.authors.map(a => {
-      if (typeof a === 'string') {
-        return a;
-      }
-      return a.name;
-    }) : [system.author];
+    const system = game.system;
 
     const data = {};
     data.core = {
@@ -426,34 +463,31 @@ export default class Core extends foundry.appv1.api.FormApplication {
     data.system = {
       id: system.id,
       version: system.version,
-      author: Array.from(new Set(systemAuthors)).join(', '),
+      author: Core.getAuthors(system),
       manifest: system.manifest,
     };
-    data.modules = Core.getModulesForExport().map((m) => {
-      const moduleAuthors = m.authors.length ? m.authors.map(a => {
-        if (typeof a === 'string') {
-          return a;
-        }
-        return a.name;
-      }) : [m.author];
-      return {
-        id: m.id || m.name,
-        version: m.version,
-        author: Array.from(new Set(moduleAuthors)).join(', '),
-        manifest: m.manifest,
-      };
-    });
+    data.modules = Core.getModulesForExport().map((m) => ({
+      id: m.id || m.name,
+      version: m.version,
+      author: Core.getAuthors(m),
+      manifest: m.manifest,
+    }));
 
     this.download(data, Core.getFilename('foundry-environment'));
   }
 
   static exportGameSettings() {
-    const excludeModules = game.data.modules.filter((m) => m.flags?.noCopyEnvironmentSettings || m.data?.flags?.noCopyEnvironmentSettings).map((m) => m.id) || [];
+    const excludeModules = game.modules
+      .filter((m) => m.flags?.noCopyEnvironmentSettings)
+      .map((m) => m.id);
 
     // Return an array with both the world settings and player settings along with their support data.
     let data = Array.prototype.concat(
       Array.from(game.settings.settings)
         .filter(([k, v]) => {
+          if (DEPRECATED_SETTINGS.includes(k)) {
+            return false;
+          }
           try {
             const value = game.settings.get(v.namespace, v.key);
             let sameValue = value === v.default;
@@ -468,29 +502,29 @@ export default class Core extends foundry.appv1.api.FormApplication {
         })
         .map(([k, v]) => ({
           key: k,
-          value: JSON.stringify(game.settings.get(v.namespace, v.key)),
+          value: getSettingSource(v.namespace, v.key),
         }))
         .sort((a, b) => a.key.localeCompare(b.key)),
-      game.users.map((userData) => {
+      game.users.map((user) => {
         return {
-          name: userData.name,
+          name: user.name,
           core: {
-            avatar: userData.avatar,
-            color: userData.color,
-            permissions: userData.permissions,
-            role: userData.role,
+            avatar: user._source.avatar,
+            color: user._source.color,
+            permissions: user._source.permissions,
+            role: user._source.role,
           },
-          flags: userData.flags,
+          flags: user._source.flags,
         };
-    }),
-    [
-      {
-        type: Setting.SupportingDataType,
-        value: {
-          compendiumFolders: game.folders.filter((f) => f.type === 'Compendium').map(f => f.toObject()),
+      }),
+      [
+        {
+          type: Setting.SupportingDataType,
+          value: {
+            compendiumFolders: game.folders.filter((f) => f.type === 'Compendium').map(f => f.toObject()),
+          }
         }
-      }
-    ],
+      ],
     );
     this.download(data, Core.getFilename('foundry-settings-export'));
   }
@@ -511,28 +545,28 @@ export default class Core extends foundry.appv1.api.FormApplication {
   }
 
   static importGameSettingsQuick() {
-    const input = $('<input type="file">');
-    input.on('change', this.importGameSettings);
-    input.trigger('click');
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', () => Core.importGameSettings(input.files[0]));
+    input.click();
   }
 
-  static importGameSettings() {
-    const file = this.files[0];
+  static async importGameSettings(file) {
     if (!file) {
       log(false, 'No file provided for game settings importer.');
       return;
     }
 
-    foundry.utils.readTextFromFile(file).then(async (result) => {
-      try {
-        const settings = JSON.parse(result);
-        let coreSettings = new Core(settings);
-        coreSettings.render(true);
-      } catch (e) {
-        console.error('Copy Environment | Could not parse import data.', e);
-        console.error('Copy Environment | If you see an error for "maximum call stack size exceeded", try reducing the "Number of Characters" setting.');
-      }
-    });
+    try {
+      const result = await foundry.utils.readTextFromFile(file);
+      const settings = JSON.parse(result);
+      const coreSettings = new Core(settings);
+      coreSettings.render({ force: true });
+    } catch (e) {
+      console.error('Copy Environment | Could not parse import data.', e);
+      console.error('Copy Environment | If you see an error for "maximum call stack size exceeded", try reducing the "Number of Characters" setting.');
+    }
   }
 
   async processSettings(settings) {
@@ -545,8 +579,15 @@ export default class Core extends foundry.appv1.api.FormApplication {
         if (storage) {
           storage.setItem(data.key, data.value);
         }
+      } else if (config?.scope === 'user') {
+        // User scoped settings are stored per user, so let core handle the document.
+        try {
+          await game.settings.set(config.namespace, config.key, JSON.parse(data.value));
+        } catch (e) {
+          console.error(`Copy Environment | Could not import user setting ${data.key}`, e);
+        }
       } else if (game.user.isGM) {
-        const existing = game.data.settings.find((s) => s.key === data.key);
+        const existing = game.settings.storage.get('world').getSetting(data.key);
 
         if (data.key === 'core.compendiumConfiguration') {
           // The Compendium Configuration setting maps compendiums to folders, and the FolderIDs
@@ -554,7 +595,7 @@ export default class Core extends foundry.appv1.api.FormApplication {
           // Attempt to update the IDs to match the new world, but if that fails, just use the
           // existing value.
           try {
-            const existingCompendiumMap = JSON.parse(existing.value);
+            const existingCompendiumMap = existing ? JSON.parse(existing._source.value) : {};
             const newCompendiumMap = JSON.parse(data.value);
             const missingEntries = new Map();
 
@@ -581,9 +622,9 @@ export default class Core extends foundry.appv1.api.FormApplication {
           }
         }
 
-        if (existing?._id) {
+        if (existing?.id) {
           updates.push({
-            _id: existing._id,
+            _id: existing.id,
             key: data.key,
             value: data.value,
           });
@@ -595,6 +636,9 @@ export default class Core extends foundry.appv1.api.FormApplication {
         }
       }
     }
+    // Settings are written directly through the socket so that onChange handlers of
+    // the imported settings don't run before the world is reloaded.
+    const SocketInterface = foundry.helpers.SocketInterface;
     try {
       if (updates.length) {
         log(true, `Updating ${updates.length} world settings.`, updates);
@@ -651,6 +695,6 @@ export default class Core extends foundry.appv1.api.FormApplication {
       }
     }
 
-    return Folder.create(folderData, { keepId: true });
+    return CONFIG.Folder.documentClass.create(folderData, { keepId: true });
   }
 }
